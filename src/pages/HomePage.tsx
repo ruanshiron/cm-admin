@@ -10,7 +10,33 @@ import {
   TableCell,
   TableBody,
 } from "@material-ui/core";
+import { useCallback, useEffect, useState } from "react";
 import TableToolbar from "../components/table/TableToolbar";
+import { useSnackbar } from "notistack";
+import { functions } from "../config/firebase";
+import firebase from "firebase/app";
+import { createSelector } from "reselect";
+import UserRow from "../components/table/UserRow";
+import EmptyRow from "../components/table/EmptyRow";
+import LoadingRow from "../components/table/LoadingRow";
+
+const emailUsers = createSelector(
+  (state: { users: firebase.User[] }) => state.users,
+  (users) => users.filter((user) => user.email)
+);
+
+const filterdEmailUsers = createSelector(
+  [emailUsers, (state: { text: string | undefined }) => state.text],
+  (users, text) => {
+    console.log(text);
+    return users.filter((user) =>
+      text
+        ? user.displayName?.toLocaleLowerCase().includes(text.toLowerCase()) ||
+          user.email?.toLocaleLowerCase().includes(text.toLowerCase())
+        : true
+    );
+  }
+);
 
 const useStyles = makeStyles((theme: Theme) =>
   createStyles({
@@ -38,31 +64,48 @@ const useStyles = makeStyles((theme: Theme) =>
     },
   })
 );
-function createData(
-  name: string,
-  calories: number,
-  fat: number,
-  carbs: number,
-  protein: number
-) {
-  return { name, calories, fat, carbs, protein };
-}
-
-const rows = [
-  createData("Frozen yoghurt", 159, 6.0, 24, 4.0),
-  createData("Ice cream sandwich", 237, 9.0, 37, 4.3),
-  createData("Eclair", 262, 16.0, 24, 6.0),
-  createData("Cupcake", 305, 3.7, 67, 4.3),
-  createData("Gingerbread", 356, 16.0, 49, 3.9),
-];
-
 const HomePage = () => {
   const classes = useStyles();
+  const { enqueueSnackbar } = useSnackbar();
+  const [loading, setLoading] = useState(false);
+  const [users, setUsers] = useState<firebase.User[]>([]);
+  const [text, setText] = useState<string>();
+
+  const loadUsers = useCallback(() => {
+    setLoading(true);
+    functions
+      .httpsCallable("listUsers")()
+      .then((res) => {
+        if (Array.isArray(res.data?.users)) setUsers(res.data.users);
+        setLoading(false);
+      })
+      .catch(() => {
+        enqueueSnackbar("Không thể tải danh sách người dùng", {
+          variant: "error",
+        });
+        setLoading(false);
+      });
+  }, [enqueueSnackbar]);
+
+  const handleChange = (user: any) => {
+    setUsers((users) => users.map((u) => (user.uid === u.uid ? user : u)));
+  };
+
+  useEffect(() => {
+    loadUsers();
+  }, [loadUsers]);
 
   return (
     <div className={classes.root}>
       <Paper className={classes.paper}>
-        <TableToolbar onRefresh={() => {}} onSearchChange={() => {}} />
+        <TableToolbar
+          onRefresh={() => {
+            loadUsers();
+          }}
+          onSearchChange={(value) => {
+            setText(value);
+          }}
+        />
         <TableContainer>
           <Table
             className={classes.table}
@@ -71,27 +114,26 @@ const HomePage = () => {
           >
             <TableHead>
               <TableRow>
-                <TableCell>Email</TableCell>
-                <TableCell align="right">Xác thực</TableCell>
-                <TableCell align="right">Ngày gia nhập</TableCell>
-                <TableCell align="right">Carbs&nbsp;(g)</TableCell>
-                <TableCell align="right">Protein&nbsp;(g)</TableCell>
+                <TableCell width={300}>Người dùng</TableCell>
+                <TableCell width={200}>Xác thực Email</TableCell>
+                <TableCell width={600}>
+                  Thời gian đăng ký và đăng nhập
+                </TableCell>
+                <TableCell width={100}></TableCell>
+                <TableCell></TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
-              {rows.map((row) => (
-                <TableRow key={row.name}>
-                  <TableCell component="th" scope="row">
-                    {row.name}
-                  </TableCell>
-                  <TableCell align="right">{row.calories}</TableCell>
-                  <TableCell align="right">{row.fat}</TableCell>
-                  <TableCell align="right">{row.carbs}</TableCell>
-                  <TableCell align="right">{row.protein}</TableCell>
-                </TableRow>
+              {filterdEmailUsers({ users, text }).map((row) => (
+                <UserRow
+                  key={row.uid}
+                  item={row}
+                  onChange={(user) => handleChange(user)}
+                />
               ))}
             </TableBody>
           </Table>
+          {users.length === 0 && (loading ? <LoadingRow /> : <EmptyRow />)}
         </TableContainer>
       </Paper>
     </div>

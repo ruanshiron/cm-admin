@@ -3,24 +3,40 @@ import {
   createStyles,
   Theme,
   Paper,
-  Typography,
   TableContainer,
   Table,
   TableHead,
   TableRow,
   TableCell,
-  IconButton,
   TableBody,
-  Tooltip,
 } from "@material-ui/core";
-import DeleteIcon from "@material-ui/icons/Delete";
 import { useCallback, useEffect } from "react";
 import { useState } from "react";
 import { database } from "../config/firebase";
 import { useConfirm } from "material-ui-confirm";
 import { useSnackbar } from "notistack";
 import EmptyRow from "../components/table/EmptyRow";
+import LoadingRow from "../components/table/LoadingRow";
 import TableToolbar from "../components/table/TableToolbar";
+import FeedbackRow from "../components/table/FeedbackRow";
+import { createSelector } from "reselect";
+
+const filterdFeedback = createSelector(
+  [
+    (state: { feedback: any[] }) => state.feedback,
+    (state: { text: string | undefined }) => state.text,
+  ],
+  (feedback, text) => {
+    console.log(text);
+    return feedback.filter((fb) =>
+      text
+        ? fb.content?.toLocaleLowerCase().includes(text.toLowerCase()) ||
+          fb.authorName?.toLocaleLowerCase().includes(text.toLowerCase()) ||
+          fb.authorEmail?.toLocaleLowerCase().includes(text.toLowerCase())
+        : true
+    );
+  }
+);
 
 const useStyles = makeStyles((theme: Theme) =>
   createStyles({
@@ -56,18 +72,27 @@ const FeedbackPage = () => {
   const classes = useStyles();
   const confirm = useConfirm();
   const { enqueueSnackbar } = useSnackbar();
-
+  const [loading, setLoading] = useState(false);
   const [feedback, setFeedback] = useState<any[]>([]);
+  const [text, setText] = useState<string>();
 
   const loadFeedback = useCallback(() => {
+    setLoading(true);
     database
       .collection("feedback")
       .get()
       .then((snap) => {
         const fb = snap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
         setFeedback(fb);
+        setLoading(false);
+      })
+      .catch(() => {
+        enqueueSnackbar(`Lỗi! Không tải được danh sách phản hổi`, {
+          variant: "error",
+        });
+        setLoading(false);
       });
-  }, []);
+  }, [enqueueSnackbar]);
 
   useEffect(() => {
     loadFeedback();
@@ -106,10 +131,8 @@ const FeedbackPage = () => {
     <div className={classes.root}>
       <Paper className={classes.paper}>
         <TableToolbar
-          onRefresh={() => {
-            loadFeedback();
-          }}
-          onSearchChange={() => {}}
+          onRefresh={() => loadFeedback()}
+          onSearchChange={(value) => setText(value)}
         />
         <TableContainer>
           <Table
@@ -119,41 +142,23 @@ const FeedbackPage = () => {
           >
             <TableHead>
               <TableRow>
-                <TableCell width={100}>Người dùng</TableCell>
-                <TableCell width={50}>Thời gian</TableCell>
+                <TableCell width={300}>Người dùng</TableCell>
+                <TableCell width={200}>Thời gian</TableCell>
                 <TableCell>Nội dung</TableCell>
                 <TableCell align="right"></TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
-              {feedback.map((row, index) => (
-                <TableRow key={index}>
-                  <TableCell component="th" scope="row">
-                    <Typography>{row?.authorName}</Typography>
-                    <Typography variant="subtitle2">
-                      {row?.authorEmail}
-                    </Typography>
-                  </TableCell>
-                  <TableCell>
-                    {row?.created?.toDate().toLocaleDateString()}
-                  </TableCell>
-                  <TableCell>{row.content}</TableCell>
-                  <TableCell align="right">
-                    <Tooltip title="Xóa" aria-label="delete">
-                      <IconButton
-                        aria-label="delete"
-                        className={classes.margin}
-                        onClick={() => handleDeleteItem(row)}
-                      >
-                        <DeleteIcon fontSize="small" />
-                      </IconButton>
-                    </Tooltip>
-                  </TableCell>
-                </TableRow>
+              {filterdFeedback({ feedback, text }).map((row, index) => (
+                <FeedbackRow
+                  key={index}
+                  onDelete={handleDeleteItem}
+                  item={row}
+                />
               ))}
             </TableBody>
           </Table>
-          {feedback.length === 0 && <EmptyRow />}
+          {feedback.length === 0 && (loading ? <LoadingRow /> : <EmptyRow />)}
         </TableContainer>
       </Paper>
     </div>
